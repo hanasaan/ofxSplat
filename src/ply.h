@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 //#include "logging.h"
 
@@ -88,6 +88,14 @@ namespace ply {
                 ofLogFatalError() << "invalid accessor type for property:" <<prop_name.c_str();
             return PlyAccessor<T>(ply_body_, header_, idx);
         }
+
+		bool hasAccessor(const std::string& prop_name) const {
+			const auto it = std::find_if(header_.props.begin(), header_.props.end(),
+										 [&](const PlyProperty& prop) {
+											 return prop_name == prop.name;
+										 });
+			return it != header_.props.end();
+		}
 
         size_t num_vertices() const { return header_.num_vertices; }
 

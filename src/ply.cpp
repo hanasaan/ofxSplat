@@ -1,4 +1,4 @@
-#include "ply.h"
+﻿#include "ply.h"
 //#include "logging.h"
 #include <fstream>
 #include <regex>
@@ -82,7 +82,7 @@ PlyHeader::PlyHeader(const std::string& filename) {
                 return p - file_begin + END_HEADER_STR.size();
         }
         ofLogFatalError() << "could not parse PLY file";
-        return z;
+        return (size_t)z;
     }();
 //
 //    ofLog(OF_LOG_NOTICE, "address:: " + ofToString(address));

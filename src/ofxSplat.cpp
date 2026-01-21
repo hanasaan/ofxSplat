@@ -1,4 +1,4 @@
-#include "ofxSplat.h"
+﻿#include "ofxSplat.h"
 #include "ply.h"
 #include <cstdint> // For uint32_t and uint16_t
 #include <cstring> // For memcpy
@@ -35,22 +35,27 @@ void ofxSplat::setup(string pointCloud){
      const auto f_dc_1 = ply.accessor<float>("f_dc_1");
      const auto f_dc_2 = ply.accessor<float>("f_dc_2");
     
-     std::vector<ply::PlyAccessor<float>> sh;
-    for (size_t i = 0; i < 45; ++i){
-        sh.push_back(ply.accessor<float>("f_rest_" + std::to_string(i)));
+    const size_t maxRestCoeffs = 45;
+    std::vector<std::pair<size_t, ply::PlyAccessor<float>>> restAccessors;
+    restAccessors.reserve(maxRestCoeffs);
+    for (size_t i = 0; i < maxRestCoeffs; ++i) {
+        const std::string name = "f_rest_" + std::to_string(i);
+        if (ply.hasAccessor(name)) {
+            restAccessors.emplace_back(i, ply.accessor<float>(name));
+        }
     }
      int vertsRemoved = 0;
     for (size_t row = 0; row < ply.num_vertices(); ++row) {
         
-        VertexData temp;
-        for (size_t i = 0; i < 45; ++i){
-            temp.f_rest[i] = ply.accessor<float>("f_rest_" + std::to_string(i))(row);
-//            if(row%100000 == 0){
+        VertexData temp{};
+        for (const auto& rest : restAccessors) {
+            temp.f_rest[rest.first] = rest.second(row);
+        }
+				//            if(row%100000 == 0){
 //                cout << "next:";
 //                cout << temp.f_rest[i];
 //            }
            
-        }
         temp.x = x(row);
         temp.y = y(row);
         temp.z = z(row);
