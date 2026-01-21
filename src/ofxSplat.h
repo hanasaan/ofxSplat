@@ -29,9 +29,10 @@ class ofxSplat {
         ofVboMesh mesh;
 
 		ofShader shader;
-		ofEasyCam cam;
+        ofEasyCam cam;
         glm::vec3 sh[15];
         float camAngle =0;
+        int shDegree = 0;
 
         vector < VertexData > vertices;
 

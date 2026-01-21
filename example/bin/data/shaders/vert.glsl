@@ -55,6 +55,8 @@ out vec2 vPosition;
 uniform mat4 projection, view;
 uniform vec2 focal;
 uniform vec2 viewport;
+uniform vec3 cam_pos;
+uniform int sh_degree;
 
 uniform float time;
 
@@ -81,37 +83,40 @@ vec3 compute_color_from_sh(vec3 position, vec3 camPos) {
     vec3 dir = normalize(position - camPos);
     vec3 result = (SH_C0 * sh[0]);
 
-    // if deg > 0
-    float x = dir.x;
-    float y = dir.y;
-    float z = dir.z;
+    if (sh_degree > 0) {
+        float x = dir.x;
+        float y = dir.y;
+        float z = dir.z;
 
-    result += SH_C1 * (-y * sh[1] + z * sh[2] - x * sh[3]);
+        result += SH_C1 * (-y * sh[1] + z * sh[2] - x * sh[3]);
 
-    float xx = x * x;
-    float yy = y * y;
-    float zz = z * z;
-    float xy = x * y;
-    float xz = x * z;
-    float yz = y * z;
+        if (sh_degree > 1) {
+            float xx = x * x;
+            float yy = y * y;
+            float zz = z * z;
+            float xy = x * y;
+            float xz = x * z;
+            float yz = y * z;
 
-    // if (sh_degree > 1) {
-    result +=
-        SH_C2[0] * xy * sh[4] +
-        SH_C2[1] * yz * sh[5] +
-        SH_C2[2] * (2.0 * zz - xx - yy) * sh[6] +
-        SH_C2[3] * xz * sh[7] +
-        SH_C2[4] * (xx - yy) * sh[8];
+            result +=
+                SH_C2[0] * xy * sh[4] +
+                SH_C2[1] * yz * sh[5] +
+                SH_C2[2] * (2.0 * zz - xx - yy) * sh[6] +
+                SH_C2[3] * xz * sh[7] +
+                SH_C2[4] * (xx - yy) * sh[8];
     
-    // if (sh_degree > 2) {
-    result +=
-        SH_C3[0] * y * (3.0 * xx - yy) * sh[9] +
-        SH_C3[1] * xy * z * sh[10] +
-        SH_C3[2] * y * (4.0 * zz - xx - yy) * sh[11] +
-        SH_C3[3] * z * (2.0 * zz - 3.0 * xx - 3.0 * yy) * sh[12] +
-        SH_C3[4] * x * (4.0 * zz - xx - yy) * sh[13] +
-        SH_C3[5] * z * (xx - yy) * sh[14] +
-        SH_C3[6] * x * (xx - 3.0 * yy) * sh[15];
+            if (sh_degree > 2) {
+                result +=
+                    SH_C3[0] * y * (3.0 * xx - yy) * sh[9] +
+                    SH_C3[1] * xy * z * sh[10] +
+                    SH_C3[2] * y * (4.0 * zz - xx - yy) * sh[11] +
+                    SH_C3[3] * z * (2.0 * zz - 3.0 * xx - 3.0 * yy) * sh[12] +
+                    SH_C3[4] * x * (4.0 * zz - xx - yy) * sh[13] +
+                    SH_C3[5] * z * (xx - yy) * sh[14] +
+                    SH_C3[6] * x * (xx - 3.0 * yy) * sh[15];
+            }
+        }
+    }
 
     // unconditional
     // result = (SH_C0 * sh[0]);
@@ -261,7 +266,7 @@ void main () {
 
     //vColor = vec4(color, 1.);
     // vec3 col = compute_color_from_sh(cen.xyz , vec3(cam.x, cam.y, cam.z));
-    vec3 col = compute_color_from_sh(vec3(x,y,z), vec3(cam.x, cam.y, cam.z));
+    vec3 col = compute_color_from_sh(vec3(x,y,z), cam_pos);
 
     // vColor = clamp(pos2d.z/pos2d.w, 0.0, 1.0)* vec4(col, a);//* vec4(r,g,b, a);
     vColor = vec4(col, a);//* vec4(r,g,b, a);
@@ -275,4 +280,3 @@ void main () {
         + position.y*scaler*2. * minorAxis / viewport , 0.0, 1.0);
     
 }
-

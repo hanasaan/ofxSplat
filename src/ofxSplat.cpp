@@ -44,6 +44,20 @@ void ofxSplat::setup(string pointCloud){
             restAccessors.emplace_back(i, ply.accessor<float>(name));
         }
     }
+    const size_t restCoeffCount = restAccessors.size();
+    const size_t perColorCoeff = std::min<size_t>(15, restCoeffCount / 3);
+    if (restCoeffCount % 3 != 0) {
+        ofLogWarning("ofxSplat") << "Unexpected f_rest count: " << restCoeffCount;
+    }
+    if (perColorCoeff >= 15) {
+        shDegree = 3;
+    } else if (perColorCoeff >= 8) {
+        shDegree = 2;
+    } else if (perColorCoeff >= 3) {
+        shDegree = 1;
+    } else {
+        shDegree = 0;
+    }
      int vertsRemoved = 0;
     for (size_t row = 0; row < ply.num_vertices(); ++row) {
         
@@ -199,20 +213,24 @@ void ofxSplat::setup(string pointCloud){
         
         std::vector<float> customData = {
             v.x, v.y, v.z, r, g, b, a, sigma[0],
-            sigma[1], sigma[2], sigma[3],
-            v.f_rest[0], v.f_rest[1], v.f_rest[2], v.f_rest[3],
-            v.f_rest[4], v.f_rest[5], v.f_rest[6], v.f_rest[7],
-            v.f_rest[8], v.f_rest[9], v.f_rest[10], v.f_rest[11],
-            v.f_rest[12], v.f_rest[13], v.f_rest[14], v.f_rest[15],
-            v.f_rest[16], v.f_rest[17], v.f_rest[18], v.f_rest[19],
-            v.f_rest[20], v.f_rest[21], v.f_rest[22], v.f_rest[23],
-            v.f_rest[24], v.f_rest[25], v.f_rest[26], v.f_rest[27],
-            v.f_rest[28], v.f_rest[29], v.f_rest[30], v.f_rest[31],
-            v.f_rest[32], v.f_rest[33], v.f_rest[34], v.f_rest[35],
-            v.f_rest[36], v.f_rest[37], v.f_rest[38], v.f_rest[39],
-            v.f_rest[40], v.f_rest[41], v.f_rest[42], v.f_rest[43],
-            v.f_rest[44], sigma[4], sigma[5],0
-            };
+            sigma[1], sigma[2], sigma[3]
+        };
+        for (int coeff = 0; coeff < 15; ++coeff) {
+            float rCoeff = 0.0f;
+            float gCoeff = 0.0f;
+            float bCoeff = 0.0f;
+            if (static_cast<size_t>(coeff) < perColorCoeff) {
+                rCoeff = v.f_rest[coeff];
+                gCoeff = v.f_rest[coeff + perColorCoeff];
+                bCoeff = v.f_rest[coeff + perColorCoeff * 2];
+            }
+            customData.push_back(rCoeff);
+            customData.push_back(gCoeff);
+            customData.push_back(bCoeff);
+        }
+        customData.push_back(sigma[4]);
+        customData.push_back(sigma[5]);
+        customData.push_back(0.0f);
         
         
         //6 vertices per point
@@ -339,6 +357,7 @@ void ofxSplat::draw(){
 //    shader.setUniform2f("focal", 1159.5880733038064, 1164.6601287484507);
 
     shader.setUniform3f("cam_pos", cam.getPosition());
+    shader.setUniform1i("sh_degree", shDegree);
     
     
     
