@@ -154,17 +154,11 @@ void ofxSplat::setup(string pointCloud){
     
             const auto& v = vertices[i];
 
-            float SH_C0 = 0.28209479177387814;
             float r = v.f_dc[0];
             float g =  v.f_dc[1];
             float b = v.f_dc[2];
             float a = v.opacity; // Opacity converted to alpha
 
-            // Convert RGBA to 0-255 range and store
-            uint32_t color = ((uint8_t)(r * 255) << 24) | ((uint8_t)(g * 255) << 16) | ((uint8_t)(b * 255) << 8) | (uint8_t)(a * 255);
-
-   
-        
         std::vector<double> rot = { v.rot[0], v.rot[1], v.rot[2], v.rot[3] };
         std::vector<double> scale = { v.scale[0], v.scale[1], v.scale[2] };
         std::vector<double> M(9, 0.0); // 9 elements for a 3x3 matrix
@@ -231,13 +225,9 @@ void ofxSplat::setup(string pointCloud){
         customData.push_back(sigma[4]);
         customData.push_back(sigma[5]);
         customData.push_back(0.0f);
-        
-        
-        //6 vertices per point
-        for (int z = 0; z < 6; z++){
-            for (auto & f : customData){
-                data.push_back(f);
-            }
+
+        for (auto & f : customData){
+            data.push_back(f);
         }
         
     }
@@ -277,33 +267,18 @@ void ofxSplat::setup(string pointCloud){
     mesh.addIndices(indices);
     
     
-    shader.begin();
-    
-    // we pass the data to the shader through a bunch of custom
-    // attributes -- vec4, vec4, vec3 and vec2 (13 floats)
-    // x,y,z,r,g,b,a,sigma1, sigma2, sigma3, sigma4, sigma5, sigma6
-    
-    int customData1Loc = shader.getAttributeLocation("customData1");
-    int customData2Loc = shader.getAttributeLocation("customData2");
-    int customData3Loc = shader.getAttributeLocation("customData3");
-    int customData4Loc = shader.getAttributeLocation("customData4");
-    
-    int dataSize = 59;
-    mesh.getVbo().setAttributeData(customData1Loc, data.data(), 4, vertices.size()*6, GL_STATIC_DRAW, sizeof(float) * dataSize); // First vec4
-    mesh.getVbo().setAttributeData(customData2Loc, data.data() + 4, 4, vertices.size()*6, GL_STATIC_DRAW, sizeof(float) * dataSize); // Second vec4
-    mesh.getVbo().setAttributeData(customData3Loc, data.data() + 8, 3, vertices.size()*6, GL_STATIC_DRAW, sizeof(float) * dataSize); // First vec3
-//    //12 = 15*3/4 rounded up
-    int shLocs[12];
-    for (int i = 0; i < (12); ++i) {
-        std::string locName = "sh" + std::to_string(i) ;
-        shLocs[i] = shader.getAttributeLocation(locName);
+    if (splatDataBuffer == 0) {
+        glGenBuffers(1, &splatDataBuffer);
     }
-    
-    for (int i = 0; i < 12; ++i) {
-        mesh.getVbo().setAttributeData(shLocs[i], data.data()+11 + (i*4), 4, vertices.size()*6, GL_STATIC_DRAW, sizeof(float) * dataSize );
+    if (splatDataTex == 0) {
+        glGenTextures(1, &splatDataTex);
     }
-    
-     shader.end();
+    glBindBuffer(GL_TEXTURE_BUFFER, splatDataBuffer);
+    glBufferData(GL_TEXTURE_BUFFER, data.size() * sizeof(float), data.data(), GL_STATIC_DRAW);
+    glBindTexture(GL_TEXTURE_BUFFER, splatDataTex);
+    glTexBuffer(GL_TEXTURE_BUFFER, GL_R32F, splatDataBuffer);
+    glBindTexture(GL_TEXTURE_BUFFER, 0);
+    glBindBuffer(GL_TEXTURE_BUFFER, 0);
     
     mesh.enableIndices();
 }
@@ -340,8 +315,12 @@ void ofxSplat::draw(){
  
 	shader.begin();
 
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_BUFFER, splatDataTex);
+    shader.setUniform1i("splatData", 0);
+    shader.setUniform1i("splatStride", splatDataStride);
     
-    
+    shader.setUniform1i("splatCount", static_cast<int>(vertices.size()));
     shader.setUniformMatrix4f("view",cam.getModelViewMatrix());
     shader.setUniform2f("viewport", ofGetWidth(), ofGetHeight());
 	shader.setUniformMatrix4f("projection", cam.getProjectionMatrix());
@@ -457,6 +436,7 @@ void ofxSplat::draw(){
     
 	mesh.draw();
 	shader.end();
+    glBindTexture(GL_TEXTURE_BUFFER, 0);
 
     cam.end();
 }

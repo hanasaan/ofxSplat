@@ -7,46 +7,24 @@ precision highp float;
 
 in vec3 position;
 in vec3 color;
-in vec4 customData1;
-in vec4 customData2;
-in vec3 customData3;
-// in vec2 customData4;
-
-//0-47 declare sh
-in vec4 sh0;
-in vec4 sh1;
-in vec4 sh2;
-in vec4 sh3;
-in vec4 sh4;
-in vec4 sh5;
-in vec4 sh6;
-in vec4 sh7;
-in vec4 sh8;
-in vec4 sh9;
-in vec4 sh10;
-in vec4 sh11;
+uniform samplerBuffer splatData;
+uniform int splatStride;
 vec3 scaler = vec3(1,1,1);
 
-vec3 sh[16] = vec3[16](
-    vec3( customData1.a, customData2.x, customData2.y),
-    vec3(sh0.r, sh0.g, sh0.b)* scaler,
-    vec3(sh0.a, sh1.r, sh1.g)* scaler,
-    vec3(sh1.b, sh1.a, sh2.r)* scaler,
-    vec3(sh2.g, sh2.b, sh2.a)* scaler,
-    vec3(sh3.r, sh3.g, sh3.b)* scaler,
-    vec3(sh3.a, sh4.r, sh4.g)* scaler,
-    vec3(sh4.b, sh4.a, sh5.r)* scaler,
-    vec3(sh5.g, sh5.b, sh5.a)* scaler,
-    vec3(sh6.r, sh6.g, sh6.b)* scaler,
-    vec3(sh6.a, sh7.r, sh7.g)* scaler,
-    vec3(sh7.b, sh7.a, sh8.r)* scaler,
-    vec3(sh8.g, sh8.b, sh8.a)* scaler,
-    vec3(sh9.r, sh9.g, sh9.b)* scaler,
-    vec3(sh9.a, sh10.r, sh10.g)* scaler,
-    vec3(sh10.b, sh10.a, sh11.r)* scaler
-    // vec3(sh11.g, sh11.b, sh11.a)* scaler
-    // vec3(sh12.r, sh12.g, sh12.b)* scaler
- );
+float splatFetch(int base, int offset) {
+    return texelFetch(splatData, base + offset).r;
+}
+
+vec4 splatFetch4(int base, int offset) {
+    return vec4(
+        splatFetch(base, offset + 0),
+        splatFetch(base, offset + 1),
+        splatFetch(base, offset + 2),
+        splatFetch(base, offset + 3)
+    );
+}
+
+vec3 sh[16];
         
 
 out vec4 vColor;
@@ -57,6 +35,7 @@ uniform vec2 focal;
 uniform vec2 viewport;
 uniform vec3 cam_pos;
 uniform int sh_degree;
+uniform int splatCount;
 
 uniform float time;
 
@@ -206,21 +185,54 @@ vec3 compute_color_from_sh(vec3 position, vec3 camPos) {
 
 void main () {
     
-    // pull the data out of the custom attributes:
-    
-    float x = customData1.x;
-    float y = customData1.y;
-    float z = customData1.z;
+    int splatIndex = gl_VertexID / 6;
+    if (splatIndex < 0 || splatIndex >= splatCount) {
+        vColor = vec4(0.0);
+        vPosition = vec2(0.0);
+        gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+        return;
+    }
+    int base = splatIndex * splatStride;
+    vec4 sh0 = splatFetch4(base, 11);
+    vec4 sh1 = splatFetch4(base, 15);
+    vec4 sh2 = splatFetch4(base, 19);
+    vec4 sh3 = splatFetch4(base, 23);
+    vec4 sh4 = splatFetch4(base, 27);
+    vec4 sh5 = splatFetch4(base, 31);
+    vec4 sh6 = splatFetch4(base, 35);
+    vec4 sh7 = splatFetch4(base, 39);
+    vec4 sh8 = splatFetch4(base, 43);
+    vec4 sh9 = splatFetch4(base, 47);
+    vec4 sh10 = splatFetch4(base, 51);
+    vec4 sh11 = splatFetch4(base, 55);
 
-    float r = customData1.a;
-    float g = customData2.x;
-    float b = customData2.y;
-    float a = customData2.z;
+    sh[0] = vec3(splatFetch(base, 3), splatFetch(base, 4), splatFetch(base, 5));
+    sh[1] = vec3(sh0.r, sh0.g, sh0.b) * scaler;
+    sh[2] = vec3(sh0.a, sh1.r, sh1.g) * scaler;
+    sh[3] = vec3(sh1.b, sh1.a, sh2.r) * scaler;
+    sh[4] = vec3(sh2.g, sh2.b, sh2.a) * scaler;
+    sh[5] = vec3(sh3.r, sh3.g, sh3.b) * scaler;
+    sh[6] = vec3(sh3.a, sh4.r, sh4.g) * scaler;
+    sh[7] = vec3(sh4.b, sh4.a, sh5.r) * scaler;
+    sh[8] = vec3(sh5.g, sh5.b, sh5.a) * scaler;
+    sh[9] = vec3(sh6.r, sh6.g, sh6.b) * scaler;
+    sh[10] = vec3(sh6.a, sh7.r, sh7.g) * scaler;
+    sh[11] = vec3(sh7.b, sh7.a, sh8.r) * scaler;
+    sh[12] = vec3(sh8.g, sh8.b, sh8.a) * scaler;
+    sh[13] = vec3(sh9.r, sh9.g, sh9.b) * scaler;
+    sh[14] = vec3(sh9.a, sh10.r, sh10.g) * scaler;
+    sh[15] = vec3(sh10.b, sh10.a, sh11.r) * scaler;
+
+    float x = splatFetch(base, 0);
+    float y = splatFetch(base, 1);
+    float z = splatFetch(base, 2);
+
+    float a = splatFetch(base, 6);
     
-    float sigma0 = customData2.a;
-    float sigma1 = customData3.x;
-    float sigma2 = customData3.y;
-    float sigma3 = customData3.z;
+    float sigma0 = splatFetch(base, 7);
+    float sigma1 = splatFetch(base, 8);
+    float sigma2 = splatFetch(base, 9);
+    float sigma3 = splatFetch(base, 10);
     float sigma4 = sh11.g;
     float sigma5 = sh11.b;
     
@@ -233,6 +245,8 @@ void main () {
     vec4 pos2d = projection * cam;
     float clip = 1.2 * pos2d.w;
     if (pos2d.z < -clip || pos2d.x < -clip || pos2d.x > clip || pos2d.y < -clip || pos2d.y > clip) {
+        vColor = vec4(0.0);
+        vPosition = vec2(0.0);
         gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
         return;
     }
@@ -256,7 +270,12 @@ void main () {
     float radius = length(vec2((cov2d[0][0] - cov2d[1][1]) / 2.0, cov2d[0][1]));
     float lambda1 = mid + radius, lambda2 = mid - radius;
 
-    if(lambda2 < 0.0) return;
+    if(lambda2 < 0.0) {
+        vColor = vec4(0.0);
+        vPosition = vec2(0.0);
+        gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+        return;
+    }
     vec2 diagonalVector = normalize(vec2(-cov2d[0][1], lambda1 - cov2d[0][0]));
     
     vec2 majorAxis = min(sqrt(2.0 * lambda1), 2048.0) * diagonalVector;

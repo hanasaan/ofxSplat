@@ -35,6 +35,9 @@ class ofxSplat {
         int shDegree = 0;
 
         vector < VertexData > vertices;
+        GLuint splatDataBuffer = 0;
+        GLuint splatDataTex = 0;
+        int splatDataStride = 59;
 
 };
 #endif /* splat_h */
