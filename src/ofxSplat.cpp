@@ -325,6 +325,7 @@ void ofxSplat::draw(){
     
 	//use shader program
     ofDisableDepthTest();
+	ofEnableAlphaBlending();
     //ofBackground(0);
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);  // Clear
@@ -353,8 +354,8 @@ void ofxSplat::draw(){
     float focalLengthY = viewportHeight / (2.0f * tan(ofDegToRad(fov) / 2.0f));
     
     // I'm not convinced this is right:
-	shader.setUniform2f("focal", focalLengthX, focalLengthY);
-//    shader.setUniform2f("focal", 1159.5880733038064, 1164.6601287484507);
+	//shader.setUniform2f("focal", focalLengthX, focalLengthY);
+    shader.setUniform2f("focal", 1159.5880733038064, 1164.6601287484507);
 
     shader.setUniform3f("cam_pos", cam.getPosition());
     shader.setUniform1i("sh_degree", shDegree);
