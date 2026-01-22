@@ -285,11 +285,6 @@ void ofxSplat::setup(string pointCloud){
 
 //--------------------------------------------------------------
 void ofxSplat::update(){
-
-    if (ofGetFrameNum() % 60 == 0){
-        shader.load("vert.glsl", "frag.glsl");
-        shader.bindDefaults();
-    }
 }
 
 //--------------------------------------------------------------
