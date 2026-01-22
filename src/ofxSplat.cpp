@@ -279,12 +279,149 @@ void ofxSplat::setup(string pointCloud){
     glTexBuffer(GL_TEXTURE_BUFFER, GL_R32F, splatDataBuffer);
     glBindTexture(GL_TEXTURE_BUFFER, 0);
     glBindBuffer(GL_TEXTURE_BUFFER, 0);
-    
+
     mesh.enableIndices();
+
+    // Preallocate depth vertex buffers
+    depthVertices.resize(vertices.size());
+    pendingDepthVertices.resize(vertices.size());
+
+    // Preallocate index buffers
+    const size_t indexCount = vertices.size() * 6;
+    for (int i = 0; i < 3; i++) {
+        sortBuffers[i].indices.reserve(indexCount);
+        sortBuffers[i].vertexCount = vertices.size();
+    }
+
+    // Initialize read buffer with default order
+    for (int i = 0; i < vertices.size(); i++) {
+        sortBuffers[readBufferIndex].indices.push_back(i * 6 + 0);
+        sortBuffers[readBufferIndex].indices.push_back(i * 6 + 1);
+        sortBuffers[readBufferIndex].indices.push_back(i * 6 + 2);
+        sortBuffers[readBufferIndex].indices.push_back(i * 6 + 3);
+        sortBuffers[readBufferIndex].indices.push_back(i * 6 + 4);
+        sortBuffers[readBufferIndex].indices.push_back(i * 6 + 5);
+    }
+
+    // Start worker thread
+    stopRequested = false;
+    threadRunning = true;
+    sortWorker = std::thread(&ofxSplat::sortThreadLoop, this);
+}
+
+//--------------------------------------------------------------
+void ofxSplat::sortThreadLoop() {
+    while (true) {
+        // Wait for work
+        {
+            std::unique_lock<std::mutex> lock(sortMutex);
+            sortCV.wait(lock, [this]() {
+                return stopRequested.load() || sortRequested.load();
+            });
+
+            if (stopRequested.load()) {
+                break;
+            }
+
+            sortRequested.store(false);
+        }
+
+        // Perform sort (outside mutex - this is the slow part)
+        performCountingSort();
+
+        // Signal completion
+        {
+            std::unique_lock<std::mutex> lock(sortMutex);
+            std::swap(writeBufferIndex, pendingBufferIndex);
+            sortReady.store(true);
+        }
+    }
+}
+
+//--------------------------------------------------------------
+void ofxSplat::performCountingSort() {
+    SortData& data = sortBuffers[writeBufferIndex];
+    const vector<DepthVertex>& depths = pendingDepthVertices;
+
+    int vertexCount = depths.size();
+    int32_t maxDepth = data.maxDepth;
+    int32_t minDepth = data.minDepth;
+
+    double depthRange = static_cast<double>(maxDepth) - minDepth;
+    double depthInv = (depthRange > 0) ? ((256.0 * 256.0 - 1) / depthRange) : 1.0;
+
+    std::vector<uint32_t> counts0(256 * 256, 0);
+
+    // Count occurrences
+    for (int i = 0; i < vertexCount; i++) {
+        int32_t normalizedDepth = static_cast<int32_t>(
+            (depths[i].depth - minDepth) * depthInv);
+        normalizedDepth = std::max(0, std::min(normalizedDepth, 256 * 256 - 1));
+        counts0[normalizedDepth]++;
+    }
+
+    // Calculate starting positions
+    std::vector<uint32_t> starts0(256 * 256, 0);
+    uint32_t totalCount = 0;
+    for (int i = 0; i < 256 * 256; i++) {
+        starts0[i] = totalCount;
+        totalCount += counts0[i];
+    }
+
+    // Build sorted index array
+    std::vector<uint32_t> depthIndex(vertexCount);
+    for (int i = 0; i < vertexCount; i++) {
+        int32_t normalizedDepth = static_cast<int32_t>(
+            (depths[i].depth - minDepth) * depthInv);
+        normalizedDepth = std::max(0, std::min(normalizedDepth, 256 * 256 - 1));
+
+        if (starts0[normalizedDepth] < vertexCount) {
+            depthIndex[starts0[normalizedDepth]++] = i;
+        }
+    }
+
+    // Build final index buffer (6 indices per splat)
+    data.indices.clear();
+    data.indices.reserve(vertexCount * 6);
+
+    for (int i = 0; i < vertexCount; i++) {
+        int index = depths[depthIndex[i]].index;
+        data.indices.push_back(index * 6 + 0);
+        data.indices.push_back(index * 6 + 1);
+        data.indices.push_back(index * 6 + 2);
+        data.indices.push_back(index * 6 + 3);
+        data.indices.push_back(index * 6 + 4);
+        data.indices.push_back(index * 6 + 5);
+    }
 }
 
 //--------------------------------------------------------------
 void ofxSplat::update(){
+    // Check if previous sort completed
+    if (sortReady.load()) {
+        swapSortBuffers();
+        sortReady.store(false);
+    }
+
+    // Calculate camera matrix
+    ofMatrix4x4 projView = cam.getProjectionMatrix() * cam.getModelViewMatrix();
+
+    // Check if camera moved significantly (optimization)
+    const float threshold = 0.001f;
+    bool cameraChanged = hasCameraChanged(projView, threshold);
+
+    if (cameraChanged || !sortRequested.load()) {
+        // Calculate depths on main thread (fast operation)
+        calculateDepths(projView);
+
+        // Request sort from worker thread
+        {
+            std::unique_lock<std::mutex> lock(sortMutex);
+            std::swap(depthVertices, pendingDepthVertices);
+            sortRequested.store(true);
+        }
+        sortCV.notify_one();
+    }
 }
 
 //--------------------------------------------------------------
@@ -333,100 +470,9 @@ void ofxSplat::draw(){
 
     shader.setUniform3f("cam_pos", cam.getPosition());
     shader.setUniform1i("sh_degree", shDegree);
-    
-    
-    
-    struct vertex2 {
-        ofPoint pt;
-        int index;
-        int32_t depth;
-    };
 
-    vector < vertex2 > vertexsss;
-    ofMatrix4x4 projview =  cam.getProjectionMatrix() * cam.getModelViewMatrix();
-   
-    
-    int32_t maxDepth = std::numeric_limits<int32_t>::min();
-    int32_t minDepth = std::numeric_limits<int32_t>::max();
-
-    for (int i = 0; i < vertices.size(); i++) {
-        vertex2 v;
-        v.pt = ofPoint(vertices[i].x, vertices[i].y, vertices[i].z);
-        v.index = i;
-        
-
-        v.depth =((projview(0, 2) * v.pt.x +
-         projview(1, 2) * v.pt.y +
-            projview(2, 2) * v.pt.z) * 4096);
-
-        maxDepth = std::max(maxDepth, v.depth);
-        minDepth = std::min(minDepth, v.depth);
-
-        vertexsss.push_back(v);
-    }
-
-    // Inline lambda for counting sort
-    auto countingSort = [&vertexsss, maxDepth, minDepth]() {
-        int vertexCount = vertexsss.size();
-        double depthRange = static_cast<double>(maxDepth) - minDepth;
-        double depthInv = (depthRange > 0) ? ((256.0 * 256.0 - 1) / depthRange) : 1.0;
-        
-        std::vector<uint32_t> counts0(256 * 256, 0);
-        
-        // First pass: count occurrences
-        for (int i = 0; i < vertexCount; i++) {
-            int32_t normalizedDepth = static_cast<int32_t>((vertexsss[i].depth - minDepth) * depthInv);
-            normalizedDepth = std::max(0, std::min(normalizedDepth, 256 * 256 - 1)); // Clamp value
-            counts0[normalizedDepth]++;
-        }
-
-        std::vector<uint32_t> starts0(256 * 256, 0);
-        uint32_t totalCount = 0;
-        for (int i = 0; i < 256 * 256; i++) {
-            starts0[i] = totalCount;
-            totalCount += counts0[i];
-        }
-
-        std::vector<uint32_t> depthIndex(vertexCount);
-        for (int i = 0; i < vertexCount; i++) {
-            int32_t normalizedDepth = static_cast<int32_t>((vertexsss[i].depth - minDepth) * depthInv);
-            normalizedDepth = std::max(0, std::min(normalizedDepth, 256 * 256 - 1)); // Clamp value
-            
-            if (starts0[normalizedDepth] < vertexCount) {
-                depthIndex[starts0[normalizedDepth]++] = i;
-            } else {
-                std::cout << "Error: starts0[" << normalizedDepth << "] = " << starts0[normalizedDepth]
-                          << " is out of bounds for depthIndex of size " << vertexCount << std::endl;
-                // As a fallback, place this vertex at the end
-                depthIndex[vertexCount - 1] = i;
-            }
-        }
-
-        std::vector<vertex2> sortedVertices(vertexCount);
-        for (int i = 0; i < vertexCount; i++) {
-            sortedVertices[i] = vertexsss[depthIndex[i]];
-        }
-
-        vertexsss = std::move(sortedVertices);
-    };
-
-    // Call the counting sort
-    countingSort();
-
-    
-    
-    vector < unsigned int > indices;
-    for (int i = 0; i < vertexsss.size(); i++) {
-        
-        int index = vertexsss[i].index;
-        indices.push_back(index*6 + 0);
-        indices.push_back(index*6 + 1);
-        indices.push_back(index*6 + 2);
-        indices.push_back(index*6 + 3);
-        indices.push_back(index*6 + 4);
-        indices.push_back(index*6 + 5);
-    }
-    
+    // Use latest available sorted indices (no mutex needed - atomic flag already checked)
+    const vector<unsigned int>& indices = sortBuffers[readBufferIndex].indices;
     mesh.getVbo().updateIndexData(indices.data(), indices.size());
     
 	mesh.draw();
@@ -434,4 +480,73 @@ void ofxSplat::draw(){
     glBindTexture(GL_TEXTURE_BUFFER, 0);
 
     cam.end();
+}
+
+//--------------------------------------------------------------
+ofxSplat::~ofxSplat() {
+    stopThread();
+}
+
+//--------------------------------------------------------------
+void ofxSplat::stopThread() {
+    if (!threadRunning) {
+        return;
+    }
+
+    {
+        std::unique_lock<std::mutex> lock(sortMutex);
+        stopRequested.store(true);
+        sortCV.notify_all();
+    }
+
+    if (sortWorker.joinable()) {
+        sortWorker.join();
+    }
+
+    threadRunning = false;
+    stopRequested.store(false);
+}
+
+//--------------------------------------------------------------
+void ofxSplat::calculateDepths(const ofMatrix4x4& projView) {
+    int32_t maxDepth = std::numeric_limits<int32_t>::min();
+    int32_t minDepth = std::numeric_limits<int32_t>::max();
+
+    for (int i = 0; i < vertices.size(); i++) {
+        DepthVertex& dv = depthVertices[i];
+        dv.index = i;
+
+        const auto& v = vertices[i];
+        dv.depth = static_cast<int32_t>((projView(0, 2) * v.x +
+                                          projView(1, 2) * v.y +
+                                          projView(2, 2) * v.z) * 4096);
+
+        maxDepth = std::max(maxDepth, dv.depth);
+        minDepth = std::min(minDepth, dv.depth);
+    }
+
+    sortBuffers[writeBufferIndex].maxDepth = maxDepth;
+    sortBuffers[writeBufferIndex].minDepth = minDepth;
+    sortBuffers[writeBufferIndex].projViewMatrix = projView;
+}
+
+//--------------------------------------------------------------
+void ofxSplat::swapSortBuffers() {
+    std::unique_lock<std::mutex> lock(sortMutex);
+
+    // Rotate buffers: pending -> read, read -> write
+    int oldRead = readBufferIndex;
+    readBufferIndex = pendingBufferIndex;
+    pendingBufferIndex = oldRead;
+}
+
+//--------------------------------------------------------------
+bool ofxSplat::hasCameraChanged(const ofMatrix4x4& newMatrix, float threshold) {
+    const ofMatrix4x4& oldMatrix = sortBuffers[readBufferIndex].projViewMatrix;
+
+    float diff = std::abs(newMatrix(0, 2) - oldMatrix(0, 2)) +
+                 std::abs(newMatrix(1, 2) - oldMatrix(1, 2)) +
+                 std::abs(newMatrix(2, 2) - oldMatrix(2, 2));
+
+    return diff > threshold;
 }
